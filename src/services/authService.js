@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../prisma/client.js";
 import { validateEmail, validatePassword, validateName } from "../utils/validators.js";
 import { AppError } from "../middlewares/errorHandler.js";
+import logger from "../logger/logger.js";
 
 export async function registerUser(name, email, password) {
   // Validações
@@ -15,8 +16,19 @@ export async function registerUser(name, email, password) {
   }
 
   const normalizedEmail = email.toLowerCase().trim();
+  
+  logger.debug({
+    message: "Tentativa de registro",
+    email: normalizedEmail,
+    name,
+  });
+
   const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existingUser) {
+    logger.warn({
+      message: "Tentativa de registro com email já cadastrado",
+      email: normalizedEmail,
+    });
     throw new AppError("E-mail já cadastrado.", 400);
   }
 
@@ -33,22 +45,48 @@ export async function registerUser(name, email, password) {
     },
   });
 
+  logger.info({
+    message: "Usuário registrado com sucesso",
+    userId: user.id,
+    email: user.email,
+  });
+
   return user;
 }
 
 export async function loginUser(email, password) {
   // Validações básicas
   if (!email || !password) {
+    logger.warn({
+      message: "Tentativa de login sem credenciais",
+      email: email || "não fornecido",
+    });
     throw new AppError("E-mail e senha são obrigatórios.", 400);
   }
 
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+  const normalizedEmail = email.toLowerCase().trim();
+  
+  logger.debug({
+    message: "Tentativa de login",
+    email: normalizedEmail,
+  });
+
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) {
+    logger.warn({
+      message: "Tentativa de login com email não encontrado",
+      email: normalizedEmail,
+    });
     throw new AppError("E-mail ou senha incorretos.", 401);
   }
 
   const validPassword = await bcrypt.compare(password, user.password);
   if (!validPassword) {
+    logger.warn({
+      message: "Tentativa de login com senha incorreta",
+      email: normalizedEmail,
+      userId: user.id,
+    });
     throw new AppError("E-mail ou senha incorretos.", 401);
   }
 
@@ -64,6 +102,12 @@ export async function loginUser(email, password) {
 
   // Retornar usuário sem a senha
   const { password: _, ...userWithoutPassword } = user;
+
+  logger.info({
+    message: "Login realizado com sucesso",
+    userId: user.id,
+    email: user.email,
+  });
 
   return { user: userWithoutPassword, token };
 }

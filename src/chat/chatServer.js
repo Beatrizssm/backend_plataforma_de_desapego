@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { CHAT_EVENTS } from "./chatEvents.js";
 import { chatController } from "../controllers/chatController.js";
+import logger from "../logger/logger.js";
 
 export function setupChat(server) {
   const io = new Server(server, {
@@ -12,11 +13,20 @@ export function setupChat(server) {
   });
 
   io.on(CHAT_EVENTS.CONNECTION, (socket) => {
-    console.log("🟢 Novo usuário conectado:", socket.id);
+    logger.info({
+      message: "Novo usuário conectado ao chat",
+      socketId: socket.id,
+      transport: socket.conn.transport.name,
+    });
 
     // Evento para enviar mensagem
     socket.on(CHAT_EVENTS.SEND_MESSAGE, async (data) => {
-      console.log("💬 Mensagem recebida:", data);
+      logger.info({
+        message: "Mensagem recebida via Socket.IO",
+        socketId: socket.id,
+        userId: data.userId,
+        itemId: data.itemId,
+      });
       
       try {
         // Salvar mensagem no banco de dados
@@ -38,10 +48,19 @@ export function setupChat(server) {
         if (data.itemId) {
           const roomId = `item-${data.itemId}`;
           io.to(roomId).emit(CHAT_EVENTS.RECEIVE_MESSAGE, messageData);
-          console.log(`📤 Mensagem salva e enviada para a sala: ${roomId}`);
+          logger.info({
+            message: "Mensagem enviada para a sala",
+            roomId,
+            messageId: savedMessage.id,
+            itemId: data.itemId,
+          });
         } else {
           // Se não houver itemId, enviar para todos (fallback)
           io.emit(CHAT_EVENTS.RECEIVE_MESSAGE, messageData);
+          logger.warn({
+            message: "Mensagem enviada sem itemId (fallback para todos)",
+            messageId: savedMessage.id,
+          });
         }
 
         // Notificar o dono do item (se for outro usuário que enviou)
@@ -59,10 +78,21 @@ export function setupChat(server) {
 
           // Enviar notificação para o dono do item
           io.emit(`notify:${savedMessage.item.ownerId}`, notification);
-          console.log(`🔔 Notificação enviada para o dono do item (userId: ${savedMessage.item.ownerId})`);
+          logger.info({
+            message: "Notificação enviada para o dono do item",
+            ownerId: savedMessage.item.ownerId,
+            itemId: savedMessage.itemId,
+            messageId: savedMessage.id,
+          });
         }
       } catch (error) {
-        console.error("❌ Erro ao salvar/enviar mensagem:", error);
+        logger.error({
+          message: "Erro ao salvar/enviar mensagem via Socket.IO",
+          error: error.message,
+          stack: error.stack,
+          socketId: socket.id,
+          data,
+        });
         socket.emit("error", { message: "Erro ao enviar mensagem" });
       }
     });
@@ -70,7 +100,11 @@ export function setupChat(server) {
     // Evento para entrar em uma sala (ex: chat de um item específico)
     socket.on(CHAT_EVENTS.JOIN_ROOM, (roomId) => {
       socket.join(roomId);
-      console.log(`👤 Usuário ${socket.id} entrou na sala: ${roomId}`);
+      logger.debug({
+        message: "Usuário entrou na sala do chat",
+        socketId: socket.id,
+        roomId,
+      });
       
       // Notifica outros na sala
       socket.to(roomId).emit(CHAT_EVENTS.RECEIVE_MESSAGE, {
@@ -83,7 +117,11 @@ export function setupChat(server) {
     // Evento para sair de uma sala
     socket.on(CHAT_EVENTS.LEAVE_ROOM, (roomId) => {
       socket.leave(roomId);
-      console.log(`👤 Usuário ${socket.id} saiu da sala: ${roomId}`);
+      logger.debug({
+        message: "Usuário saiu da sala do chat",
+        socketId: socket.id,
+        roomId,
+      });
     });
 
     // Evento para indicar que usuário está digitando
@@ -103,8 +141,12 @@ export function setupChat(server) {
     });
 
     // Evento de desconexão
-    socket.on(CHAT_EVENTS.DISCONNECT, () => {
-      console.log("🔴 Usuário desconectado:", socket.id);
+    socket.on(CHAT_EVENTS.DISCONNECT, (reason) => {
+      logger.info({
+        message: "Usuário desconectado do chat",
+        socketId: socket.id,
+        reason,
+      });
     });
   });
 
