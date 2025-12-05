@@ -1,4 +1,4 @@
-import { registerUser, loginUser } from "../services/authService.js";
+import { registerUser, loginUser, changePassword } from "../services/authService.js";
 import logger from "../logger/logger.js";
 import { successResponse, createdResponse, errorResponse, unauthorizedResponse } from "../utils/responseHelper.js";
 import { asyncHandler } from "../middlewares/errorHandler.js";
@@ -76,5 +76,35 @@ export const login = asyncHandler(async (req, res) => {
   });
   
   return successResponse(res, "Login realizado com sucesso!", { user, token });
+});
+
+export const changePasswordController = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.id;
+
+  logger.debug({
+    message: "Tentativa de alteração de senha",
+    userId,
+    ip: req.ip,
+  });
+
+  if (!currentPassword || !newPassword) {
+    logger.warn({
+      message: "Tentativa de alteração de senha sem campos obrigatórios",
+      userId,
+      ip: req.ip,
+    });
+    return errorResponse(res, "Senha atual e nova senha são obrigatórias", 400);
+  }
+
+  await changePassword(userId, currentPassword, newPassword);
+  
+  logger.info({
+    message: "Senha alterada com sucesso",
+    userId,
+    ip: req.ip,
+  });
+  
+  return successResponse(res, "Senha alterada com sucesso!", {});
 });
 

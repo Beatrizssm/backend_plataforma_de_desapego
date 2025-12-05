@@ -112,3 +112,52 @@ export async function loginUser(email, password) {
   return { user: userWithoutPassword, token };
 }
 
+export async function changePassword(userId, currentPassword, newPassword) {
+  // Validações
+  if (!currentPassword || !newPassword) {
+    throw new AppError("Senha atual e nova senha são obrigatórias.", 400);
+  }
+
+  validatePassword(newPassword);
+
+  logger.debug({
+    message: "Tentativa de alteração de senha",
+    userId,
+  });
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    logger.warn({
+      message: "Tentativa de alteração de senha para usuário não encontrado",
+      userId,
+    });
+    throw new AppError("Usuário não encontrado.", 404);
+  }
+
+  // Verificar senha atual
+  const validPassword = await bcrypt.compare(currentPassword, user.password);
+  if (!validPassword) {
+    logger.warn({
+      message: "Tentativa de alteração de senha com senha atual incorreta",
+      userId,
+    });
+    throw new AppError("Senha atual incorreta.", 401);
+  }
+
+  // Hash da nova senha
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+  // Atualizar senha
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashedPassword },
+  });
+
+  logger.info({
+    message: "Senha alterada com sucesso",
+    userId,
+  });
+
+  return { message: "Senha alterada com sucesso" };
+}
+

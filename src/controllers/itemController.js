@@ -4,6 +4,9 @@ import {
   getItemById,
   updateItem,
   deleteItem,
+  updateItemStatus,
+  reserveItem,
+  buyItem,
 } from "../services/itemService.js";
 import logger from "../logger/logger.js";
 import { successResponse, createdResponse, errorResponse, notFoundResponse } from "../utils/responseHelper.js";
@@ -104,4 +107,79 @@ export const remove = asyncHandler(async (req, res) => {
   });
   
   return successResponse(res, result.message || "Item excluído com sucesso!");
+});
+
+export const updateStatus = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const itemId = req.params.id;
+  const { status } = req.body;
+  
+  if (!status) {
+    return errorResponse(res, "Status é obrigatório", 400);
+  }
+
+  logger.info({
+    message: "Atualizando status do item",
+    itemId,
+    userId,
+    newStatus: status,
+    ip: req.ip,
+  });
+  
+  const item = await updateItemStatus(itemId, status, userId);
+  
+  logger.info({
+    message: "Status do item atualizado com sucesso",
+    itemId: item.id,
+    userId,
+    status: item.status,
+  });
+  
+  return successResponse(res, "Status do item atualizado com sucesso!", item);
+});
+
+export const reserve = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const itemId = req.params.id;
+
+  logger.info({
+    message: "Reservando item",
+    itemId,
+    userId,
+    ip: req.ip,
+  });
+
+  const item = await reserveItem(itemId, userId);
+
+  logger.info({
+    message: "Item reservado com sucesso",
+    itemId: item.id,
+    userId,
+    title: item.title,
+  });
+
+  return successResponse(res, "Item reservado com sucesso!", item);
+});
+
+export const buy = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const itemId = req.params.id;
+
+  logger.info({
+    message: "Comprando item",
+    itemId,
+    userId,
+    ip: req.ip,
+  });
+
+  const item = await buyItem(itemId, userId);
+
+  logger.info({
+    message: "Item comprado com sucesso",
+    itemId: item.id,
+    userId,
+    title: item.title,
+  });
+
+  return successResponse(res, "Item comprado com sucesso!", item);
 });

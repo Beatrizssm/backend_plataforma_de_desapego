@@ -18,12 +18,19 @@ model User {
   createdAt DateTime  @default(now())
 }
 
+enum ItemStatus {
+  DISPONIVEL
+  RESERVADO
+  DOADO_VENDIDO
+}
+
 model Item {
   id          Int       @id @default(autoincrement())
   title       String
   description String
   price       Float
   available   Boolean   @default(true)
+  status      ItemStatus @default(DISPONIVEL)
   imageUrl    String?
   ownerId     Int
   owner       User      @relation(fields: [ownerId], references: [id])
