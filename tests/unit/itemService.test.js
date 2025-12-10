@@ -10,7 +10,7 @@ vi.mock("../../src/prisma/client.js", () => ({
 }));
 
 // Importar service após o mock
-let createItem, getAllItems, getItemById, updateItem, deleteItem;
+let createItem, getAllItems, getItemById, updateItem, deleteItem, reserveItem, buyItem, updateItemStatus;
 
 describe("itemService", () => {
   beforeEach(async () => {
@@ -22,6 +22,9 @@ describe("itemService", () => {
     getItemById = itemService.getItemById;
     updateItem = itemService.updateItem;
     deleteItem = itemService.deleteItem;
+    reserveItem = itemService.reserveItem;
+    buyItem = itemService.buyItem;
+    updateItemStatus = itemService.updateItemStatus;
   });
 
   describe("createItem", () => {
@@ -57,6 +60,7 @@ describe("itemService", () => {
           description: itemData.description.trim(),
           price: Number(itemData.price),
           available: itemData.available !== undefined ? Boolean(itemData.available) : true,
+          status: itemData.status || "DISPONIVEL",
           imageUrl: itemData.imageUrl ? itemData.imageUrl.trim() : null,
           ownerId: userId,
         },
@@ -263,6 +267,286 @@ describe("itemService", () => {
       mockPrisma.item.findUnique.mockResolvedValue(existingItem);
 
       await expect(deleteItem(1, 2)).rejects.toThrow("Acesso negado");
+    });
+  });
+
+  describe("reserveItem", () => {
+    it("deve reservar um item disponível com sucesso", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        description: "Descrição do item",
+        price: 99.99,
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      const reservedItem = {
+        ...item,
+        status: "RESERVADO",
+        available: false,
+        owner: { id: 1, name: "Owner", email: "owner@example.com" },
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+      mockPrisma.item.update.mockResolvedValue(reservedItem);
+
+      const result = await reserveItem(1, 2); // userId 2 (não é o dono)
+
+      expect(mockPrisma.item.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
+      expect(mockPrisma.item.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          status: "RESERVADO",
+          available: false,
+        },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+      expect(result).toEqual(reservedItem);
+    });
+
+    it("deve lançar erro se item não existir", async () => {
+      mockPrisma.item.findUnique.mockResolvedValue(null);
+
+      await expect(reserveItem(999, 1)).rejects.toThrow("Item não encontrado");
+    });
+
+    it("deve lançar erro se item não estiver disponível", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "RESERVADO",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(reserveItem(1, 2)).rejects.toThrow("não está disponível para reserva");
+    });
+
+    it("deve lançar erro se usuário tentar reservar seu próprio item", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(reserveItem(1, 1)).rejects.toThrow("Você não pode reservar seu próprio item");
+    });
+  });
+
+  describe("buyItem", () => {
+    it("deve comprar um item disponível com sucesso", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        description: "Descrição do item",
+        price: 99.99,
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      const boughtItem = {
+        ...item,
+        status: "DOADO_VENDIDO",
+        available: false,
+        owner: { id: 1, name: "Owner", email: "owner@example.com" },
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+      mockPrisma.item.update.mockResolvedValue(boughtItem);
+
+      const result = await buyItem(1, 2); // userId 2 (não é o dono)
+
+      expect(mockPrisma.item.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
+      expect(mockPrisma.item.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          status: "DOADO_VENDIDO",
+          available: false,
+        },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+      expect(result).toEqual(boughtItem);
+    });
+
+    it("deve comprar um item reservado com sucesso", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "RESERVADO",
+        ownerId: 1,
+      };
+
+      const boughtItem = {
+        ...item,
+        status: "DOADO_VENDIDO",
+        available: false,
+        owner: { id: 1, name: "Owner", email: "owner@example.com" },
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+      mockPrisma.item.update.mockResolvedValue(boughtItem);
+
+      const result = await buyItem(1, 2);
+
+      expect(result.status).toBe("DOADO_VENDIDO");
+    });
+
+    it("deve lançar erro se item não existir", async () => {
+      mockPrisma.item.findUnique.mockResolvedValue(null);
+
+      await expect(buyItem(999, 1)).rejects.toThrow("Item não encontrado");
+    });
+
+    it("deve lançar erro se item não estiver disponível ou reservado", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DOADO_VENDIDO",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(buyItem(1, 2)).rejects.toThrow("não está disponível para compra");
+    });
+
+    it("deve lançar erro se usuário tentar comprar seu próprio item", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(buyItem(1, 1)).rejects.toThrow("Você não pode comprar seu próprio item");
+    });
+  });
+
+  describe("updateItemStatus", () => {
+    it("deve atualizar status de DISPONIVEL para RESERVADO", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      const updatedItem = {
+        ...item,
+        status: "RESERVADO",
+        available: false,
+        owner: { id: 1, name: "Owner", email: "owner@example.com" },
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+      mockPrisma.item.update.mockResolvedValue(updatedItem);
+
+      const result = await updateItemStatus(1, "RESERVADO", 1);
+
+      expect(mockPrisma.item.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          status: "RESERVADO",
+          available: false,
+        },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+      expect(result).toEqual(updatedItem);
+    });
+
+    it("deve atualizar status de RESERVADO para DISPONIVEL", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "RESERVADO",
+        ownerId: 1,
+      };
+
+      const updatedItem = {
+        ...item,
+        status: "DISPONIVEL",
+        available: true,
+        owner: { id: 1, name: "Owner", email: "owner@example.com" },
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+      mockPrisma.item.update.mockResolvedValue(updatedItem);
+
+      const result = await updateItemStatus(1, "DISPONIVEL", 1);
+
+      expect(result.status).toBe("DISPONIVEL");
+      expect(result.available).toBe(true);
+    });
+
+    it("deve lançar erro se status for inválido", async () => {
+      await expect(updateItemStatus(1, "INVALID_STATUS", 1)).rejects.toThrow(
+        "Status inválido"
+      );
+    });
+
+    it("deve lançar erro se item não existir", async () => {
+      mockPrisma.item.findUnique.mockResolvedValue(null);
+
+      await expect(updateItemStatus(999, "RESERVADO", 1)).rejects.toThrow("Item não encontrado");
+    });
+
+    it("deve lançar erro se usuário não for o dono", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DISPONIVEL",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(updateItemStatus(1, "RESERVADO", 2)).rejects.toThrow("Acesso negado");
+    });
+
+    it("deve lançar erro se transição de status for inválida", async () => {
+      const item = {
+        id: 1,
+        title: "Item Teste",
+        status: "DOADO_VENDIDO",
+        ownerId: 1,
+      };
+
+      mockPrisma.item.findUnique.mockResolvedValue(item);
+
+      await expect(updateItemStatus(1, "DISPONIVEL", 1)).rejects.toThrow(
+        "Transição de status inválida"
+      );
     });
   });
 });

@@ -22,7 +22,7 @@ vi.mock("jsonwebtoken", () => ({
 }));
 
 // Importar services após os mocks
-let registerUser, loginUser;
+let registerUser, loginUser, changePassword;
 
 describe("authService", () => {
   beforeEach(async () => {
@@ -31,6 +31,7 @@ describe("authService", () => {
     const authService = await import("../../src/services/authService.js");
     registerUser = authService.registerUser;
     loginUser = authService.loginUser;
+    changePassword = authService.changePassword;
   });
 
   describe("registerUser", () => {
@@ -199,6 +200,83 @@ describe("authService", () => {
       await expect(loginUser(userData.email, "password123")).rejects.toThrow(
         "JWT_SECRET não configurado no ambiente."
       );
+    });
+  });
+
+  describe("changePassword", () => {
+    beforeEach(() => {
+      process.env.JWT_SECRET = "test-secret";
+    });
+
+    it("deve alterar senha com sucesso", async () => {
+      const userId = 1;
+      const currentPassword = "oldPassword123";
+      const newPassword = "newPassword123";
+      const hashedOldPassword = "hashedOldPassword";
+      const hashedNewPassword = "hashedNewPassword";
+
+      const user = {
+        id: userId,
+        email: "test@example.com",
+        password: hashedOldPassword,
+      };
+
+      mockPrisma.user.findUnique.mockResolvedValue(user);
+      mockBcrypt.compare.mockResolvedValue(true);
+      mockBcrypt.hash.mockResolvedValue(hashedNewPassword);
+      mockPrisma.user.update.mockResolvedValue({ ...user, password: hashedNewPassword });
+
+      const result = await changePassword(userId, currentPassword, newPassword);
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { id: userId } });
+      expect(mockBcrypt.compare).toHaveBeenCalledWith(currentPassword, hashedOldPassword);
+      expect(mockBcrypt.hash).toHaveBeenCalledWith(newPassword, 10);
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { password: hashedNewPassword },
+      });
+      expect(result).toHaveProperty("message", "Senha alterada com sucesso");
+    });
+
+    it("deve lançar erro se senha atual ou nova senha estiverem faltando", async () => {
+      await expect(changePassword(1, "", "newPassword123")).rejects.toThrow(
+        "Senha atual e nova senha são obrigatórias"
+      );
+      await expect(changePassword(1, "oldPassword123", "")).rejects.toThrow(
+        "Senha atual e nova senha são obrigatórias"
+      );
+    });
+
+    it("deve lançar erro se nova senha for muito curta", async () => {
+      await expect(changePassword(1, "oldPassword123", "123")).rejects.toThrow(
+        "Senha deve ter no mínimo 6 caracteres"
+      );
+    });
+
+    it("deve lançar erro se usuário não existir", async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(changePassword(999, "oldPassword123", "newPassword123")).rejects.toThrow(
+        "Usuário não encontrado"
+      );
+    });
+
+    it("deve lançar erro se senha atual estiver incorreta", async () => {
+      const userId = 1;
+      const user = {
+        id: userId,
+        email: "test@example.com",
+        password: "hashedOldPassword",
+      };
+
+      mockPrisma.user.findUnique.mockResolvedValue(user);
+      mockBcrypt.compare.mockResolvedValue(false);
+
+      await expect(changePassword(userId, "wrongPassword", "newPassword123")).rejects.toThrow(
+        "Senha atual incorreta"
+      );
+      expect(mockBcrypt.hash).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
   });
 });
